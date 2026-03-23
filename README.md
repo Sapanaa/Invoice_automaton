@@ -1,4 +1,4 @@
-#  ITClinical Invoice Processing Automation
+#   Invoice Processing Automation
 
 An **n8n-based automation system** that monitors a Google Drive folder, processes invoice files, extracts structured data using **Gemini AI**, stores results in Google Sheets and a REST API, and organises files into outcome-based folders.
 

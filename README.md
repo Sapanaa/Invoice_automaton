@@ -21,8 +21,8 @@ An **n8n-based automation system** that monitors a Google Drive folder, processe
 ##  Architecture Overview
 
 ```
-Google Drive (Inbox folder)
-        │  [every 1 minute]
+Google Drive Trigger (Inbox folder) [Every month ]
+        │  
         ▼
    n8n Workflow
    ┌─────────────────────────────────────────────────────┐

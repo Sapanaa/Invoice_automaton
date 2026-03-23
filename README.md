@@ -83,7 +83,7 @@ Google Drive Trigger (Inbox folder) [Every month ]
 
 A Google Sheet with the following columns:
 
-`Supplier | Invoice Number | Invoice Date | Amount | Currency | Source File | Processed At`
+`Supplier | Invoice Number | Invoice Date | Amount | Currency | Source File `
 
 ---
 

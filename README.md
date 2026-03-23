@@ -217,7 +217,7 @@ X-Api-Key: your-api-key
 | POST   | /invoices |
 | GET    | /invoices |
 
----
+
 
 ##  Design Decisions
 
@@ -229,7 +229,7 @@ Uses Gemini AI instead of regex to handle:
 * Different layouts
 * Unstructured data
 
----
+
 
 ### Batch Processing
 
@@ -239,7 +239,7 @@ Uses **Split In Batches**:
 * Prevents workflow crashes
 * Ensures all files are processed
 
----
+
 
 ### Fault Tolerance
 
@@ -247,7 +247,7 @@ Uses **Split In Batches**:
 * All files end in Processed or Failed
 * Easy debugging via n8n logs
 
----
+
 
 ##  Security
 
@@ -255,7 +255,7 @@ Uses **Split In Batches**:
 * Uses environment variables
 * `.env` excluded from Git
 
----
+
 
 ##  Limitations
 
@@ -263,7 +263,7 @@ Uses **Split In Batches**:
 * Accuracy depends on text quality
 * Requires internet for AI
 
----
+
 
 ##  Enhancements
 
@@ -272,7 +272,7 @@ Uses **Split In Batches**:
 * Database integration
 * Advanced validation rules
 
----
+
 
 ##  Stopping
 
@@ -286,10 +286,20 @@ Remove data:
 docker compose down -v
 ```
 
----
+## 🖼️ Workflow Preview
+
+### n8n Workflow
+
+![n8n workflow](./screenshots/n8n.png)
+
+## MOCK API
+![Postman MOCK API](./screenshots/postman.png)
+
+
+### Google Sheet
+![google sheet](./screenshots/sheet.png)
 
 ##  Author
 
 Sapana Dhami
 
----

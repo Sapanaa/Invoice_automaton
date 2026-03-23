@@ -1,0 +1,75 @@
+version: "3.8"
+
+services:
+  # ──────────────────────────────────────────────────────────────
+  # n8n – self-hosted workflow automation
+  # ──────────────────────────────────────────────────────────────
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      # ── Basic auth (change in production) ──
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=${N8N_BASIC_AUTH_USER:-admin}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_BASIC_AUTH_PASSWORD:-changeme}
+
+      # ── Host / URL ──
+      - N8N_HOST=${N8N_HOST:-localhost}
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=${N8N_PROTOCOL:-http}
+      - WEBHOOK_URL=${WEBHOOK_URL:-http://localhost:5678/}
+
+      # ── Timezone ──
+      - GENERIC_TIMEZONE=${TIMEZONE:-Europe/Lisbon}
+
+      # ── Google OAuth credentials ──
+      #    (fill these with your own Google Cloud OAuth 2.0 Client ID/Secret)
+      - N8N_GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-PLACEHOLDER_GOOGLE_CLIENT_ID}
+      - N8N_GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-PLACEHOLDER_GOOGLE_CLIENT_SECRET}
+
+      # ── Encryption key for stored credentials ──
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY:-PLACEHOLDER_ENCRYPTION_KEY_32CHARS}
+
+      # ── Workflow data persistence ──
+      - DB_TYPE=sqlite
+      - DB_SQLITE_DATABASE=/home/node/.n8n/database.sqlite
+
+      # ── Allow importing workflows via file ──
+      - N8N_CUSTOM_EXTENSIONS=/home/node/.n8n/custom
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./workflows:/home/node/.n8n/workflows:ro
+    networks:
+      - invoice_net
+    depends_on:
+      - mock-api
+
+  # ──────────────────────────────────────────────────────────────
+  # Mock Invoice Tracking API  (Node.js / Express)
+  # ──────────────────────────────────────────────────────────────
+  mock-api:
+    build:
+      context: ./mock-api
+      dockerfile: Dockerfile
+    container_name: mock-api
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - API_KEY=${MOCK_API_KEY:-PLACEHOLDER_MOCK_API_KEY}
+    volumes:
+      - mock_api_data:/app/data
+    networks:
+      - invoice_net
+
+volumes:
+  n8n_data:
+  mock_api_data:
+
+networks:
+  invoice_net:
+    driver: bridge

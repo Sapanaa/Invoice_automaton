@@ -1,0 +1,656 @@
+{
+  "name": "Automation_workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "resource": "fileFolder",
+        "returnAll": true,
+        "filter": {
+          "folderId": {
+            "__rl": true,
+            "value": "1AyVmHouJI1BRG0i3ATZB-MpuqOEIj7Nh",
+            "mode": "id"
+          }
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        -544,
+        1216
+      ],
+      "id": "bfac0c5a-d15b-4204-b326-489c679b7c88",
+      "name": "Search files and folders",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "IlPf253SKbYA5iFz",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "download",
+        "fileId": {
+          "__rl": true,
+          "value": "={{ $json.id }}",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "id": "7b0f4967-94aa-4c93-917a-7e4bfc3d028a",
+      "name": "Download File",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        -320,
+        992
+      ],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "IlPf253SKbYA5iFz",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// MUST be: Run Once for Each Item\n\nconst fileName = $input.item.json.name || 'unknown';\nconst fileId   = $input.item.json.id   || '';\n\nconst nameLower = fileName.toLowerCase();\n\n// Check file type\nconst isPdf = nameLower.endsWith('.pdf');\n\n// ❌ Do NOT throw error → return object\nif (!isPdf) {\n  return {\n    json: {\n      fileName,\n      fileId,\n      _skip: true,\n      _reason: `Unsupported file type: ${fileName}`\n    }\n  };\n}\n\n// Get binary safely\nconst binary = $input.item.binary || {};\nconst binaryKeys = Object.keys(binary);\n\nif (binaryKeys.length === 0) {\n  return {\n    json: {\n      fileName,\n      fileId,\n      _skip: true,\n      _reason: `No binary data`\n    }\n  };\n}\n\nconst key = binaryKeys[0];\n\n// ✅ Return SINGLE object (not array)\nreturn {\n  json: {\n    fileName,\n    fileId,\n    _skip: false\n  },\n  binary: {\n    data: binary[key]\n  }\n};"
+      },
+      "id": "2ed37f26-0fd2-4b99-8805-bb5eaedcc81d",
+      "name": "Read File",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -32,
+        624
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.fileName ? $json.fileName.toLowerCase().endsWith('.pdf') : false }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              },
+              "id": "d60c0c9f-135b-4be0-90f5-1b7f72910ed0"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {
+          "ignoreCase": true
+        }
+      },
+      "id": "c761d40d-1eaf-4daf-af2c-76fb015e4cc3",
+      "name": "Is PDF?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        176,
+        1104
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "pdf",
+        "options": {}
+      },
+      "id": "ffd48ace-3e8f-44cd-98c6-4ef960021272",
+      "name": "Extract PDF Text",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        320,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Combine PDF text output with fileName and fileId\nconst pdfText = $input.first().json.text || '';\nconst prev = $('Read File').first().json;\nreturn [{ json: { text: pdfText, fileName: prev.fileName, fileId: prev.fileId } }];"
+      },
+      "id": "bfd5f112-10b3-48b0-bf5c-8641c1202619",
+      "name": "Combine PDF Text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        768
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\nconst text = input.text || '';\nconst fileName = input.fileName || 'unknown';\nconst fileId   = input.fileId   || '';\nconst GEMINI_API_KEY = 'AIzaSyANx9IwSwGWI9Ttp8DCLgADi7z6zFcamNg';\n\n// No text — skip silently\nif (!text || text.trim().length < 10) {\n  return [{ json: { _skip: true, _reason: 'No readable text', source_file: fileName, file_id: fileId, processed_at: new Date().toISOString() } }];\n}\n\nconst response = await this.helpers.httpRequest({\n  method: 'POST',\n  url: `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,\n  headers: { 'content-type': 'application/json' },\n  body: {\n    contents: [{ parts: [{ text: `Extract invoice data from the text below.\nReturn ONLY a JSON object with these exact keys: supplier, invoice_number, invoice_date, amount, currency\n- invoice_date must be in YYYY-MM-DD format\n- amount must be a number only (no currency symbols)\n- currency must be a 3-letter ISO code (EUR, USD, GBP etc)\n- If a field cannot be found, set it to null\nReturn ONLY the raw JSON object. No explanation. No markdown. No backticks.\nInvoice text:\n${text.substring(0, 1000)}` }] }],\n    generationConfig: { temperature: 0, maxOutputTokens: 512, responseMimeType: 'application/json' }\n  },\n  json: true\n});\n\nconst raw = (response.candidates?.[0]?.content?.parts?.[0]?.text || '').trim().replace(/```json|```/g, '').trim();\n\nif (!raw) {\n  return [{ json: { _skip: true, _reason: 'Empty Gemini response', source_file: fileName, file_id: fileId, processed_at: new Date().toISOString() } }];\n}\n\nlet data;\ntry { data = JSON.parse(raw); }\ncatch(e) { return [{ json: { _skip: true, _reason: 'Invalid JSON from Gemini', source_file: fileName, file_id: fileId, processed_at: new Date().toISOString() } }]; }\nconst found = ['supplier','invoice_number','invoice_date','amount','currency']\n  .filter(f => data[f] !== null && data[f] !== undefined && data[f] !== '');\n\n// Need at least 3 out of 5 fields to be considered a valid invoice\nif (found.length < 3) {\n  return [{ json: { _skip: true, _reason: `Not an invoice – only found ${found.length}/5 fields`, source_file: fileName, file_id: fileId, processed_at: new Date().toISOString() } }];\n}\n\nreturn [{ json: {\n  _skip: false,\n  supplier:       data.supplier       ? String(data.supplier).trim()               : null,\n  invoice_number: data.invoice_number ? String(data.invoice_number).trim()         : null,\n  invoice_date:   data.invoice_date   ? String(data.invoice_date).trim()           : null,\n  amount:         data.amount         ? Number(data.amount)                        : null,\n  currency:       data.currency       ? String(data.currency).toUpperCase().trim() : null,\n  source_file:    fileName,\n  file_id:        fileId,\n  processed_at:   new Date().toISOString()\n} }];"
+      },
+      "id": "8b23fea4-79f3-4dc1-9693-d44ecb5f5315",
+      "name": "Extract Invoice Fields (Gemini)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        992,
+        1120
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json._skip !== false }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              },
+              "id": "a457bd8f-6b9c-4a2a-b0e7-53d4d9d456c6"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "34f0772c-4b79-4c5d-b296-127804464168",
+      "name": "Is Invoice?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1216,
+        1120
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "1bfqL-ny6-p4XGYIXVDjl_GRjxmn831cfYCzQiz7Ai3U",
+          "mode": "list",
+          "cachedResultName": "Invoice",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1bfqL-ny6-p4XGYIXVDjl_GRjxmn831cfYCzQiz7Ai3U/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Sheet3",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Invoice Number": "={{ $json.invoice.invoice_number }}",
+            "Invoice Date": "={{ $json.invoice.invoice_date }}",
+            "Supplier": "={{ $json.invoice.supplier }}",
+            "Amount": "={{ $json.invoice.amount }}",
+            "Source File": "={{ $json.invoice.source_file }}",
+            "Currency": "={{ $json.invoice.currency }}"
+          },
+          "matchingColumns": [
+            "Invoice Number"
+          ],
+          "schema": [
+            {
+              "id": "Supplier",
+              "displayName": "Supplier",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Invoice Number",
+              "displayName": "Invoice Number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Invoice Date",
+              "displayName": "Invoice Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Amount",
+              "displayName": "Amount",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Currency",
+              "displayName": "Currency",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Source File",
+              "displayName": "Source File",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "c0810be7-3c94-466a-92b1-58cabb43ad96",
+      "name": "Save to Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        1424,
+        1024
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "B6XMUyMZM8s6NZo3",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "move",
+        "fileId": {
+          "__rl": true,
+          "value": "={{ $('Read File').item.json.fileId }}",
+          "mode": "id"
+        },
+        "driveId": {
+          "__rl": true,
+          "value": "My Drive",
+          "mode": "list"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "1PZF8XEz2kgbp9qrDirHxNytnCZqzHic2",
+          "mode": "id"
+        }
+      },
+      "id": "1344bcbc-885d-48d4-a78c-01e81b56a8f4",
+      "name": "Move to Processed",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1648,
+        1024
+      ],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "IlPf253SKbYA5iFz",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const input = $input.item.json;\n\nconst fname = input.source_file || input.fileName || 'unknown';\nconst fid   = input.file_id || input.fileId || '';\nconst reason = input._reason || 'Unknown error';\n\nreturn {\n  json: {\n    file_name: fname,\n    file_id: fid,\n    error: reason,\n    failed_at: new Date().toISOString()\n  }\n};"
+      },
+      "id": "231f4fc8-8dd7-4dc7-b14f-08267f86a557",
+      "name": "Prepare Failed Info",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        1472
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "move",
+        "fileId": {
+          "__rl": true,
+          "value": "={{ $json.file_id }}",
+          "mode": "id"
+        },
+        "driveId": {
+          "__rl": true,
+          "value": "My Drive",
+          "mode": "list"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "196hCoCCBNZt_o51pm3MOT2UWMq1BdRbG",
+          "mode": "id"
+        }
+      },
+      "id": "9faf22f9-db51-4662-99e1-b1d3ab560b94",
+      "name": "Move to Failed",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1120,
+        1424
+      ],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "IlPf253SKbYA5iFz",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://mock-api:3000/invoices",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "PLACEHOLDER_MOCK_API_KEY"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"supplier\": \"{{ $json.supplier }}\",\n  \"invoice_number\": \"{{ $json.invoice_number }}\",\n  \"invoice_date\": \"{{ $json.invoice_date }}\",\n  \"amount\": \"{{ $json.amount }}\",\n  \"currency\": \"{{ $json.currency }}\",\n  \"source_file\": \"{{ $json.source_file }}\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1264,
+        960
+      ],
+      "id": "ca29ad72-f439-4ac4-8fc1-9388666ff72b",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "months",
+              "triggerAtHour": 1
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -736,
+        1408
+      ],
+      "id": "4b31e03e-752d-4b5d-996b-a58af683a096",
+      "name": "Schedule Trigger1"
+    },
+    {
+      "parameters": {
+        "sendTo": "was12qq3@gmail.com",
+        "subject": "={{ $json.name }}",
+        "emailType": "text",
+        "message": "=A file could not be processed and has been moved to the /Failed folder.  File: {{ $json.name }}Reason: {{ $('Prepare Failed Info').item.json.error }} Time: {{ $('Prepare Failed Info').item.json.failed_at }}  Please check the /Failed folder in Google Drive and review this file manually.",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1328,
+        1424
+      ],
+      "id": "5ae90175-ecc9-4b88-be92-939a1462a204",
+      "name": "Send a message",
+      "webhookId": "0bfbf8d4-44f2-4c3b-861a-97f6c9be9420",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "nNuZ7Jqco50HcdXh",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "dddbbf6a-a81a-4423-af45-b8101f707baf",
+      "name": "Split In Batches",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 1,
+      "position": [
+        -304,
+        1392
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Search files and folders": {
+      "main": [
+        [
+          {
+            "node": "Split In Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download File": {
+      "main": [
+        [
+          {
+            "node": "Read File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read File": {
+      "main": [
+        [
+          {
+            "node": "Is PDF?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is PDF?": {
+      "main": [
+        [
+          {
+            "node": "Extract PDF Text",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Failed Info",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract PDF Text": {
+      "main": [
+        [
+          {
+            "node": "Combine PDF Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combine PDF Text": {
+      "main": [
+        [
+          {
+            "node": "Extract Invoice Fields (Gemini)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Invoice Fields (Gemini)": {
+      "main": [
+        [
+          {
+            "node": "Is Invoice?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Invoice?": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Failed Info",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save to Google Sheets": {
+      "main": [
+        [
+          {
+            "node": "Move to Processed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Failed Info": {
+      "main": [
+        [
+          {
+            "node": "Move to Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Save to Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger1": {
+      "main": [
+        [
+          {
+            "node": "Search files and folders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Move to Failed": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split In Batches": {
+      "main": [
+        [
+          {
+            "node": "Download File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send a message": {
+      "main": [
+        [
+          {
+            "node": "Split In Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Move to Processed": {
+      "main": [
+        [
+          {
+            "node": "Split In Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "f8f06f66-cde4-4ea0-ad76-938f753daa54",
+  "meta": {
+    "instanceId": "17bd0caa33d70c3575facaef05deea74c56edcc4c497fef01d086063391fc5fa"
+  },
+  "id": "EZSz7SNm758cXliO",
+  "tags": []
+}

@@ -1,0 +1,13 @@
+{
+  "name": "invoice-mock-api",
+  "version": "1.0.0",
+  "description": "Mock REST API for invoice tracking (ITClinical challenge)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "uuid": "^9.0.0"
+  }
+}

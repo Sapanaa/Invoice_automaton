@@ -1,14 +1,19 @@
 {
-  "name": "Automation_workflow_secure",
+  "name": "Automation_workflow",
   "nodes": [
     {
       "parameters": {
         "resource": "fileFolder",
         "returnAll": true,
         "filter": {
-          "folderId": "={{ $env.INCOMING_FOLDER_ID }}"
+          "folderId": {
+            "__rl": true,
+            "value": "={{ $env.INCOMING_FOLDER_ID }}",
+            "mode": "id"
+          }
         }
       },
+      "id": "bfac0c5a-d15b-4204-b326-489c679b7c88",
       "name": "Search files and folders",
       "type": "n8n-nodes-base.googleDrive",
       "typeVersion": 3
@@ -16,8 +21,13 @@
     {
       "parameters": {
         "operation": "download",
-        "fileId": "={{ $json.id }}"
+        "fileId": {
+          "__rl": true,
+          "value": "={{ $json.id }}",
+          "mode": "id"
+        }
       },
+      "id": "7b0f4967-94aa-4c93-917a-7e4bfc3d028a",
       "name": "Download File",
       "type": "n8n-nodes-base.googleDrive",
       "typeVersion": 3
@@ -27,14 +37,36 @@
         "mode": "runOnceForEachItem",
         "jsCode": "const fileName = $input.item.json.name || 'unknown';\nconst fileId = $input.item.json.id || '';\nconst isPdf = fileName.toLowerCase().endsWith('.pdf');\n\nif (!isPdf) {\n  return { json: { fileName, fileId, _skip: true, _reason: `Unsupported file type: ${fileName}` } };\n}\n\nconst binary = $input.item.binary || {};\nconst keys = Object.keys(binary);\n\nif (!keys.length) {\n  return { json: { fileName, fileId, _skip: true, _reason: 'No binary data' } };\n}\n\nreturn {\n  json: { fileName, fileId, _skip: false },\n  binary: { data: binary[keys[0]] }\n};"
       },
+      "id": "2ed37f26-0fd2-4b99-8805-bb5eaedcc81d",
       "name": "Read File",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2
     },
     {
       "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "leftValue": "={{ $json.fileName ? $json.fileName.toLowerCase().endsWith('.pdf') : false }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      },
+      "id": "c761d40d-1eaf-4daf-af2c-76fb015e4cc3",
+      "name": "Is PDF?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
         "operation": "pdf"
       },
+      "id": "ffd48ace-3e8f-44cd-98c6-4ef960021272",
       "name": "Extract PDF Text",
       "type": "n8n-nodes-base.extractFromFile",
       "typeVersion": 1
@@ -43,14 +75,16 @@
       "parameters": {
         "jsCode": "const input = $input.first().json;\nreturn [{ json: { text: input.text || '', fileName: input.fileName, fileId: input.fileId } }];"
       },
+      "id": "bfd5f112-10b3-48b0-bf5c-8641c1202619",
       "name": "Combine PDF Text",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2
     },
     {
       "parameters": {
-        "jsCode": "const input = $input.first().json;\nconst GEMINI_API_KEY = $env.GEMINI_API_KEY;\n\nif (!input.text || input.text.length < 10) {\n  return [{ json: { _skip: true, _reason: 'No readable text', source_file: input.fileName, file_id: input.fileId } }];\n}\n\nconst response = await this.helpers.httpRequest({\n  method: 'POST',\n  url: `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,\n  json: true,\n  body: {\n    contents: [{ parts: [{ text: input.text.substring(0, 1000) }] }]\n  }\n});\n\nconst raw = response.candidates?.[0]?.content?.parts?.[0]?.text || '{}';\nlet data;\ntry { data = JSON.parse(raw); } catch { return [{ json: { _skip: true, _reason: 'Invalid JSON', source_file: input.fileName, file_id: input.fileId } }]; }\n\nreturn [{ json: { ...data, source_file: input.fileName, file_id: input.fileId } }];"
+        "jsCode": "const input = $input.first().json;\nconst GEMINI_API_KEY = $env.GEMINI_API_KEY;\n\nif (!input.text || input.text.length < 10) {\n  return [{ json: { _skip: true, _reason: 'No readable text', source_file: input.fileName, file_id: input.fileId } }];\n}\n\nconst response = await this.helpers.httpRequest({\n  method: 'POST',\n  url: `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,\n  json: true,\n  body: {\n    contents: [{ parts: [{ text: input.text.substring(0, 1000) }] }]\n  }\n});\n\nconst raw = response.candidates?.[0]?.content?.parts?.[0]?.text || '{}';\nlet data;\ntry { data = JSON.parse(raw); } catch {\n  return [{ json: { _skip: true, _reason: 'Invalid JSON', source_file: input.fileName, file_id: input.fileId } }];\n}\n\nreturn [{ json: { ...data, source_file: input.fileName, file_id: input.fileId } }];"
       },
+      "id": "8b23fea4-79f3-4dc1-9693-d44ecb5f5315",
       "name": "Extract Invoice Fields (Gemini)",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2
@@ -58,19 +92,47 @@
     {
       "parameters": {
         "operation": "move",
-        "fileId": "={{ $json.fileId }}",
-        "folderId": "={{ $env.PROCESSED_FOLDER_ID }}"
+        "fileId": {
+          "__rl": true,
+          "value": "={{ $json.fileId }}",
+          "mode": "id"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "={{ $env.PROCESSED_FOLDER_ID }}",
+          "mode": "id"
+        }
       },
+      "id": "1344bcbc-885d-48d4-a78c-01e81b56a8f4",
       "name": "Move to Processed",
       "type": "n8n-nodes-base.googleDrive",
       "typeVersion": 3
     },
     {
       "parameters": {
-        "operation": "move",
-        "fileId": "={{ $json.file_id }}",
-        "folderId": "={{ $env.FAILED_FOLDER_ID }}"
+        "mode": "runOnceForEachItem",
+        "jsCode": "const input = $input.item.json;\nreturn {\n  json: {\n    file_name: input.source_file || input.fileName || 'unknown',\n    file_id: input.file_id || input.fileId || '',\n    error: input._reason || 'Unknown error',\n    failed_at: new Date().toISOString()\n  }\n};"
       },
+      "id": "231f4fc8-8dd7-4dc7-b14f-08267f86a557",
+      "name": "Prepare Failed Info",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "operation": "move",
+        "fileId": {
+          "__rl": true,
+          "value": "={{ $json.file_id }}",
+          "mode": "id"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "={{ $env.FAILED_FOLDER_ID }}",
+          "mode": "id"
+        }
+      },
+      "id": "9faf22f9-db51-4662-99e1-b1d3ab560b94",
       "name": "Move to Failed",
       "type": "n8n-nodes-base.googleDrive",
       "typeVersion": 3

@@ -179,6 +179,22 @@ Set workflow to **Active**
 
 ---
 
+
+## 🖼️ Workflow Preview
+
+### n8n Workflow
+
+![n8n workflow](./screenshots/n8n.png)
+
+## MOCK API
+![Postman MOCK API](./screenshots/postman.png)
+
+
+### Google Sheet
+![google sheet](./screenshots/sheet.png)
+
+
+
 ##  How to Test
 
 ###  Valid Invoice
@@ -285,19 +301,6 @@ Remove data:
 ```bash
 docker compose down -v
 ```
-
-## 🖼️ Workflow Preview
-
-### n8n Workflow
-
-![n8n workflow](./screenshots/n8n.png)
-
-## MOCK API
-![Postman MOCK API](./screenshots/postman.png)
-
-
-### Google Sheet
-![google sheet](./screenshots/sheet.png)
 
 ##  Author
 

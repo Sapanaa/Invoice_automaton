@@ -1,10 +1,24 @@
-# ITClinical Invoice Processing Automation
+#  ITClinical Invoice Processing Automation
 
-An **n8n**-based workflow that monitors a Google Drive folder for invoice files (PDF and XML), extracts structured data using Gemini AI, saves it to Google Sheets and a REST API, and organises files into clearly-labelled outcome folders.
+An **n8n-based automation system** that monitors a Google Drive folder, processes invoice files, extracts structured data using **Gemini AI**, stores results in Google Sheets and a REST API, and organises files into outcome-based folders.
 
 ---
 
-## Architecture Overview
+##  Key Features
+
+*  Fully automated invoice processing (no manual steps)
+*  PDF invoice text extraction
+*  AI-powered data extraction using Gemini
+*  Google Sheets integration for reporting
+*  REST API integration (mock backend)
+*  Automatic file organisation (Processed / Failed)
+*  Fault-tolerant workflow (no crashes on bad files)
+*  Batch processing (handles multiple files sequentially)
+*  Secure (no hardcoded credentials)
+
+---
+
+##  Architecture Overview
 
 ```
 Google Drive (Inbox folder)
@@ -12,12 +26,33 @@ Google Drive (Inbox folder)
         ▼
    n8n Workflow
    ┌─────────────────────────────────────────────────────┐
-   │  List files → Download → Read file (PDF or XML)      │
-   │       → Extract text → Gemini AI → Extract 5 fields  │
-   │       → Save to Google Sheets → POST to Mock API     │
-   │                                                       │
-   │  On success: move to /Processed                       │
-   │  On failure: move to /Failed                          │
+   │  List files                                         │
+   │        │                                             │
+   │  Split In Batches (1 file at a time)                 │
+   │        │                                             │
+   │  Download File                                      │
+   │        │                                             │
+   │  Read file (PDF only)                               │
+   │        │                                             │
+   │     Is PDF?                                         │
+   │    ┌────┴────┐                                      │
+   │   Yes        No                                     │
+   │    │          │                                     │
+   │ Extract Text  Move to Failed                        │
+   │    │                                                │
+   │ Gemini AI Extraction                               │
+   │    │                                                │
+   │ Validate Invoice                                   │
+   │    │                                                │
+   │ ┌──┴───────┐                                        │
+   │ Yes       No                                        │
+   │  │         │                                        │
+   │ Save       Move to Failed                           │
+   │ Sheets + API                                        │
+   │  │                                                  │
+   │ Move to Processed                                   │
+   │  │                                                  │
+   │  Loop back to Split In Batches                    │
    └─────────────────────────────────────────────────────┘
         │                          │
   /Processed folder          /Failed folder
@@ -25,22 +60,48 @@ Google Drive (Inbox folder)
 
 ---
 
-## Prerequisites
+##  Prerequisites
 
-- **Docker** ≥ 24.x and **Docker Compose** ≥ 2.x
-- A **Google Cloud project** with the Google Drive API and Google Sheets API enabled
-- A Google OAuth 2.0 **Client ID + Secret** (Web Application type)
-- A free **Gemini API key** from https://aistudio.google.com
-- Three Google Drive folders:
-  - `Inbox` – where invoice files are dropped
-  - `Processed` – successfully processed invoices
-  - `Failed` – files that could not be processed
-- One **Google Sheet** with these headers in row 1:
-  `Supplier | Invoice Number | Invoice Date | Amount | Currency | Source File | Processed At`
+* **Docker** ≥ 24.x and **Docker Compose** ≥ 2.x
+* **n8n** (runs via Docker in this project)
+* A **Google account** with access to Google Drive and Google Sheets
+* A **Google Cloud project** with:
+
+  * Google Drive API enabled
+  * Google Sheets API enabled
+* A Google OAuth 2.0 **Client ID + Secret** (Web Application type)
+* A free **Gemini API key** from https://aistudio.google.com
+* Internet connection (required for Gemini API requests)
+
+###  Google Drive folder structure
+
+* `Inbox` – upload invoice files here
+* `Processed` – successfully processed invoices
+* `Failed` – files that could not be processed
+
+###  Google Sheets setup
+
+A Google Sheet with the following columns:
+
+`Supplier | Invoice Number | Invoice Date | Amount | Currency | Source File | Processed At`
 
 ---
 
-## Setup Instructions
+##  Environment Variables
+
+Create a `.env` file:
+
+```bash
+GEMINI_API_KEY=your_api_key_here
+INCOMING_FOLDER_ID=your_folder_id_here
+PROCESSED_FOLDER_ID=your_folder_id_here
+FAILED_FOLDER_ID=your_folder_id_here
+API_KEY=your_mock_api_key
+```
+
+---
+
+##  Setup Instructions
 
 ### 1 – Unzip the project
 
@@ -55,13 +116,9 @@ cd invoice-automation
 cp .env.example .env
 ```
 
-Open `.env` and fill in every placeholder:
+Fill in all required values.
 
-| Variable | Description |
-|---|---|
-| `N8N_PASSWORD` | Your n8n login password |
-| `N8N_ENCRYPTION_KEY` | Random 32-character string (`openssl rand -hex 16`) |
-| `API_KEY` | Shared secret between n8n and the mock API |
+---
 
 ### 3 – Start the containers
 
@@ -69,214 +126,170 @@ Open `.env` and fill in every placeholder:
 docker compose up -d
 ```
 
-This starts:
-- **n8n** at `http://localhost:5678`
-- **mock-api** at `http://localhost:3000`
+This will start:
 
-Verify both are running:
+* **n8n** → http://localhost:5678
+* **mock-api** → http://localhost:3000
+
+Verify:
+
 ```bash
 docker compose ps
 curl http://localhost:3000/health
 ```
 
+---
+
 ### 4 – Configure Google credentials in n8n
 
-1. Open `http://localhost:5678` and log in (username: `admin`, password: your N8N_PASSWORD)
-2. Go to **Settings → Credentials → New Credential → Google Drive OAuth2 API**
-3. Enter your `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`
-4. Set the OAuth redirect URI in Google Cloud Console to:
-   `http://localhost:5678/rest/oauth2-credential/callback`
-5. Click **Connect** and complete the OAuth flow
-6. Repeat for **Google Sheets OAuth2 API**
+1. Open http://localhost:5678
+2. Go to **Settings → Credentials → Google Drive OAuth2 API**
+3. Enter your credentials
+4. Set redirect URI:
+
+```
+http://localhost:5678/rest/oauth2-credential/callback
+```
+
+5. Connect and repeat for Google Sheets
+
+---
 
 ### 5 – Import the workflow
 
-1. In n8n go to **Workflows → Import from File**
-2. Select `workflows/invoice_processing.json`
+* Go to **Workflows → Import**
+* Select: `workflows/invoice_processing.json`
 
-### 6 – Fill in placeholders
+Reconnect credentials when prompted.
 
-Open each node and replace the placeholders:
+---
 
-| Placeholder | Node | Replace with |
-|---|---|---|
-| `PLACEHOLDER_GEMINI_API_KEY` | Extract Invoice Fields (Gemini) | Your Gemini API key |
-| `PLACEHOLDER_INBOX_FOLDER_ID` | Search files and folders | Your Inbox folder ID |
-| `PLACEHOLDER_PROCESSED_FOLDER_ID` | Move to Processed | Your Processed folder ID |
-| `PLACEHOLDER_FAILED_FOLDER_ID` | Move to Failed | Your Failed folder ID |
-| `PLACEHOLDER_GOOGLE_SHEET_ID` | Save to Google Sheets | Your Google Sheet ID |
-| `PLACEHOLDER_MOCK_API_KEY` | HTTP Request | Same value as API_KEY in .env |
+### 6 – Restart after environment setup
 
-**How to find a Google Drive folder ID:**
-Open the folder in your browser. The URL looks like:
+```bash
+docker compose down
+docker compose up -d
 ```
-https://drive.google.com/drive/folders/1A2B3C4D5E6F
-```
-The ID is the string after `/folders/`.
 
-**How to get a free Gemini API key:**
-1. Go to https://aistudio.google.com
-2. Click **Get API Key** → **Create API Key**
-3. Copy and paste into the workflow node
+---
 
 ### 7 – Activate the workflow
 
-Toggle the workflow from **Inactive → Active** in n8n.
+Set workflow to **Active**
 
 ---
 
-## How to Test
+##  How to Test
 
-**Drop a valid invoice:**
-1. Upload any invoice PDF to your Inbox folder
-2. Wait 1 minute
-3. Check Google Sheets — new row should appear
-4. Check Google Drive — file moved to `/Processed`
-5. Check mock API:
-```bash
-curl -H "X-Api-Key: your-api-key" http://localhost:3000/invoices
-```
+###  Valid Invoice
 
-**Test error handling:**
-1. Drop `order_reception_document.pdf` into Inbox
-2. Wait 1 minute
-3. File should move to `/Failed`
-4. Nothing added to Google Sheets
+1. Upload a PDF invoice to `Inbox`
+2. Wait ~1 minute
+3. Verify:
+
+   * Data appears in Google Sheets
+   * File moves to `/Processed`
+   * API receives data
 
 ---
 
-## Mock API Reference
+###  Invalid File
 
-### Authentication
+1. Upload non-invoice file
+2. File moves to `/Failed`
+3. No data stored
 
-All endpoints except `/health` require:
+---
+
+##  Mock API
+
+### Auth Header
+
 ```
 X-Api-Key: your-api-key
 ```
 
 ### Endpoints
 
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/health` | Health check — no auth needed |
-| `POST` | `/invoices` | Submit a new invoice |
-| `GET` | `/invoices` | List all invoices |
-| `GET` | `/invoices/:id` | Get a single invoice |
-
-### POST /invoices – Request body
-
-```json
-{
-  "supplier":       "Northwind Industrial Parts",
-  "invoice_number": "INV-2026-0001",
-  "invoice_date":   "2026-01-14",
-  "amount":         1834.72,
-  "currency":       "EUR",
-  "source_file":    "invoice_sample_1.pdf"
-}
-```
-
-### Responses
-
-**201 Created**
-```json
-{ "success": true, "invoice": { "id": "uuid", ... } }
-```
-
-**422 Validation failure**
-```json
-{ "error": "Must provide at least supplier or invoice_number" }
-```
-
-**409 Duplicate**
-```json
-{ "error": "Duplicate invoice", "existing_id": "uuid" }
-```
-
-**401 Unauthorized**
-```json
-{ "error": "Unauthorized – invalid or missing X-Api-Key header" }
-```
+| Method | Endpoint  |
+| ------ | --------- |
+| GET    | /health   |
+| POST   | /invoices |
+| GET    | /invoices |
 
 ---
 
-## Workflow Design Decisions
+##  Design Decisions
 
-### PDF and XML Extraction Strategy
+### AI-Based Extraction
 
-The workflow handles both PDF and XML invoice files:
+Uses Gemini AI instead of regex to handle:
 
-**PDF files:** n8n's built-in `Extract From File` node reads the text layer of the PDF and returns it as plain text.
-
-**XML files:** The file binary is decoded as UTF-8 directly, giving the raw XML content as text.
-
-Both formats are then sent to **Gemini AI (free tier)** with a prompt asking for the 5 required fields as a JSON object. Gemini handles any invoice layout — top-box, side-by-side columns, tables — without needing layout-specific rules.
-
-A file is considered a valid invoice if Gemini can extract at least 3 of the 5 required fields. Files with fewer than 3 fields are silently routed to `/Failed`.
+* Multiple invoice formats
+* Different layouts
+* Unstructured data
 
 ---
 
-### Ensuring No File Is Left Unprocessed
+### Batch Processing
 
-The workflow runs on a **1-minute schedule** and lists all files in the Inbox folder on every run:
+Uses **Split In Batches**:
 
-- New files are picked up within 1 minute of being uploaded
-- Every file is always moved to either `/Processed` or `/Failed` — never left in Inbox
-- If n8n was temporarily down, files are picked up on the next run
-- The schedule-based approach also handles backfill — existing files in Inbox are processed immediately when the workflow is activated
-
----
-
-### Ensuring Users Are Warned of Errors
-
-- **Failed files are moved to `/Failed` folder** — visible at a glance in Google Drive
-- Non-invoice files are silently routed to `/Failed` via an IF node check — no workflow crashes
-- **n8n execution history** shows every run with full input/output at each node for debugging
-- The `/Failed` folder itself acts as a visual alert — a non-empty Failed folder signals files needing attention
+* Processes files one-by-one
+* Prevents workflow crashes
+* Ensures all files are processed
 
 ---
 
-## Optional Enhancements Implemented
+### Fault Tolerance
 
-### 1 – Gemini AI Extraction
-Instead of regex, Gemini AI reads the invoice text and extracts fields intelligently. This handles any invoice layout without needing format-specific rules and is more robust than pattern matching.
-
-### 2 – XML Support
-In addition to PDFs the workflow processes XML invoice files by reading them as plain text and sending to Gemini. This goes beyond the basic challenge requirements.
-
-### 3 – Google Sheets Integration
-Invoice data is saved to Google Sheets in addition to the mock REST API. This provides a human-readable, filterable view of all processed invoices that can be shared with the finance team.
-
-### 4 – Graceful Failure Handling
-Non-invoice files and extraction failures are handled silently — no workflow crashes. Everything routes cleanly to `/Failed` via IF node checks rather than error throws.
-
-### 5 – Duplicate Invoice Detection
-The mock API checks for duplicate `(supplier, invoice_number)` pairs before inserting. This prevents double-processing if a file is somehow triggered twice.
-
-### 6 – Bulk Processing
-The schedule-based approach processes all files in Inbox on every run, not just newly uploaded ones. This handles backfill scenarios and ensures no file is missed.
+* No crashes on bad files
+* All files end in Processed or Failed
+* Easy debugging via n8n logs
 
 ---
 
-## Google Drive Folder Structure
+##  Security
 
-```
-My Drive/
-├── Invoices/
-│   ├── Inbox/       ← Drop invoice files here
-│   ├── Processed/   ← Successfully processed invoices
-│   └── Failed/      ← Files that could not be processed
-```
+* No API keys stored in repository
+* Uses environment variables
+* `.env` excluded from Git
 
 ---
 
-## Stopping
+##  Limitations
+
+* Only PDF invoices supported
+* Accuracy depends on text quality
+* Requires internet for AI
+
+---
+
+##  Enhancements
+
+* XML support (future improvement)
+* Email notifications
+* Database integration
+* Advanced validation rules
+
+---
+
+##  Stopping
 
 ```bash
 docker compose down
 ```
 
-Remove all saved data:
+Remove data:
+
 ```bash
 docker compose down -v
 ```
+
+---
+
+##  Author
+
+Sapana Dhami
+
+---
